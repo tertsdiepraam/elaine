@@ -1,0 +1,18 @@
+use std;
+
+effect Ask {
+    ask() Int
+}
+
+let hAsk = handler {
+    return(x) { fn(s: Int) { x } }
+    ask() {
+        fn(s: Int) {
+            let f = resume(s);
+            f(add(s, 1))
+        }
+    }
+};
+
+let c = handle[hAsk] add(ask(), ask());
+let main = c(1);

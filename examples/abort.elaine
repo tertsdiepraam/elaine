@@ -1,0 +1,18 @@
+type Maybe[a] {
+    Just(a),
+    Nothing(),
+}
+
+effect Abort {
+    abort() ()
+}
+
+let hAbort = handler {
+    return(x) { Just(x) }
+    abort() { Nothing() }
+};
+
+let main = handle[hAbort] {
+    abort();
+    5
+};
