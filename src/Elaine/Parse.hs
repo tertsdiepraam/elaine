@@ -208,9 +208,9 @@ elaboration = do
 
 decVal :: Parser DeclarationType
 decVal = do
-  name <- try (keyword "let") >> ident
-  t <- optional (symbol ":" >> computationType)
-  DecLet name t <$> (equals >> expr <* semicolon)
+  (name, rec', t, e) <- letRecLike
+  _ <- semicolon
+  return $ DecLet name rec' t e
 
 function :: Parser Function
 function = Function <$> functionParams <*> optional computationType <*> exprBlock
@@ -298,7 +298,7 @@ row =
     return $ Row effects extend
 
 -- EXPRESSIONS
-data LetOrExpr = Let' Ident (Maybe ASTComputationType) Expr | Expr' Expr
+data LetOrExpr = Let' Ident Rec (Maybe ASTComputationType) Expr | Expr' Expr
 
 exprBlock :: Parser Expr
 exprBlock = do
@@ -310,7 +310,7 @@ exprBlock = do
     f (Expr' e1) Nothing = Just e1
     f (Let' {}) Nothing = error "last expression in a block cannot be let"
     f (Expr' e1) (Just e2) = Just $ Let Nothing Nothing e1 e2
-    f (Let' x t e1) (Just e2) = Just $ Let (Just x) t e1 e2
+    f (Let' x r t e1) (Just e2) = Just $ Let (Just (x, r)) t e1 e2
 
 letOrExpr :: Parser LetOrExpr
 letOrExpr = let' <|> Expr' <$> expr
@@ -341,9 +341,19 @@ value =
 
 let' :: Parser LetOrExpr
 let' = do
-  x <- try (keyword "let") >> ident
+  (x, rec, t, e) <- letRecLike
+  return $ Let' x rec t e
+
+letRecLike :: Parser (Ident, Rec, Maybe ASTComputationType, Expr)
+letRecLike = do 
+  recMaybe <- try (keyword "let") >> optional (keyword "rec")
+  let rec' = case recMaybe of 
+        Nothing -> NotRec
+        Just _ -> Rec
+  name <- ident
   t <- optional (symbol ":" >> computationType)
-  Let' x t <$> (equals >> expr)
+  e <- equals >> expr
+  return (name, rec', t, e)
 
 if' :: Parser Expr
 if' = do

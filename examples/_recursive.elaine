@@ -1,0 +1,20 @@
+use std;
+
+let rec while = fn(p: fn() <|e> bool, body: fn() <|e> a) <|e> () {
+    if p() {
+       () 
+    } else {
+       body();
+       while(p, body)
+    }
+};
+
+let rec factorial = fn(x: Int) {
+    if eq(x, 0) {
+        1
+    } else {
+        mul(x, factorial(sub(x, 1)))
+    }
+};
+
+let main = factorial(10);

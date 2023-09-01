@@ -15,7 +15,7 @@ data Declaration = Declaration Visibility DeclarationType
 data DeclarationType
   = Use Ident
   | Module Ident [Declaration]
-  | DecLet Ident (Maybe ASTComputationType) Expr
+  | DecLet Ident Rec (Maybe ASTComputationType) Expr
   | DecType Ident [TypeVar] [Constructor]
   | DecEffect Ident [OperationSignature]
   deriving (Show, Eq)
@@ -53,9 +53,12 @@ data Expr
     ImplicitElab Int Expr
   | Elab Expr Expr
   | Var Ident
-  | Let (Maybe Ident) (Maybe ASTComputationType) Expr Expr
+  | Let (Maybe (Ident, Rec)) (Maybe ASTComputationType) Expr Expr
   | Tuple [Expr]
   | Val Value
+  deriving (Show, Eq)
+
+data Rec = Rec | NotRec
   deriving (Show, Eq)
 
 data Value

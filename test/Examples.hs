@@ -35,6 +35,7 @@ expected "structured_logging.elaine" v = v == String "main: msg1\nmain:foo: msg2
 expected "ask.elaine" v = v == Int 32
 expected "yield.elaine" v = v == String "2\n4\n"
 expected "exception.elaine" v = pretty v == "Maybe::Just(13)"
+expected "std-while.elaine" v = v == Int 10
 expected _ _ = error "Example does not have an expected value"
 
 testAllExamples :: SpecWith ()

@@ -1,13 +1,18 @@
-module Elaine.Std (stdBindings, stdTypes) where
+{-# LANGUAGE QuasiQuotes #-}
+module Elaine.Std (stdBindings, stdTypes, stdMods) where
 
 import Data.Map (Map, fromList)
 import Elaine.AST
   ( BuiltIn (..),
     Value (Bool, Constant, Int, String),
+    Declaration,
+    DeclarationType (Module),
   )
+import Elaine.Parse (parseProgram)
 import Elaine.Ident (Ident (Ident), Location (LocBuiltIn))
 import Elaine.TypeVar (TypeVar (ExplicitVar))
 import Elaine.Types (Arrow (Arrow), CompType (CompType), TypeScheme (TypeScheme), ValType (TypeArrow, TypeBool, TypeInt, TypeString), rowEmpty, rowVar)
+import Text.RawString.QQ
 
 arrow :: [ValType] -> ValType -> TypeScheme
 arrow args ret =
@@ -24,6 +29,9 @@ newBuiltIn :: String -> TypeScheme -> ([Value] -> Maybe Value) -> BuiltIn
 newBuiltIn name t f = BuiltIn (Ident name LocBuiltIn) t $ \x -> case f x of
   Just a -> a
   Nothing -> error ("incorrect arguments for <" ++ name ++ ">")
+
+stdMods :: [Declaration]
+stdMods = loop
 
 stdBindings :: Map Ident Value
 stdBindings =
@@ -138,3 +146,58 @@ bShowBool :: BuiltIn
 bShowBool = newBuiltIn "show_bool" (arrow [TypeBool] TypeString) $ \case
   [Bool x] -> Just $ String $ show x
   _ -> Nothing
+
+loop :: [Declaration]
+loop = case parseResult of
+    Right (decs, _) -> decs
+    Left _ -> error "Couldn't parse standard library"
+    where
+      parseResult = parseProgram ("builtin_loops", m)
+      m = [r|
+      pub mod loop {
+          pub let rec while = fn(p: fn() <|e> bool, body: fn() <|e> ()) <|e> () {
+              if p() {
+                body();
+                while(p, body)
+              } else {
+                ()
+              }
+          };
+
+          pub let rec repeat = fn(x: Int, body: fn() <|e> ()) <|e> () {
+            if eq(x, 0) {
+              ()
+            } else {
+              body();
+              repeat(sub(x, 1), body)
+            }
+          };
+      }
+
+      pub mod state {
+          pub effect State {
+              get() Int
+              put(Int) () 
+          }
+
+          pub let hState = handler {
+              return(x) {
+                  fn(s: Int) {
+                      x
+                  }
+              }
+              get() {
+                  fn(s: Int) {
+                      let f = resume(s);
+                      f(s)
+                  }
+              }
+              put(n) {
+                  fn(s: Int) {
+                      let f = resume(());
+                      f(n)
+                  }
+              }
+          };
+      }
+      |]

@@ -11,7 +11,7 @@ import Elaine.Eval (eval)
 import Elaine.Ident (Ident)
 import Elaine.Parse (Spans, parseProgram)
 import Elaine.Pretty (pretty, Pretty)
-import Elaine.Transform (elabToHandle, makeElabExplicit)
+import Elaine.Transform (makeElabExplicit, desugarRec)
 import Elaine.TypeCheck (CheckState (stateMetadata), Metadata (elabs), getMain, typeCheck)
 import Elaine.Types (CompType, TypeScheme (TypeScheme))
 import Text.Pretty.Simple (pShow)
@@ -79,8 +79,8 @@ typeCheck' x = case typeCheck x of
 makeElabExplicit' :: (Program, Map Int [Ident]) -> Result Program
 makeElabExplicit' (p, m) = Right $ makeElabExplicit m p
 
-transform' :: Program -> Result Program
-transform' = Right . elabToHandle
+desugarRec' :: Program -> Result Program
+desugarRec' p = Right $ desugarRec p
 
 pretty' :: Pretty a => a -> Result String
 pretty' = Right . pretty
@@ -120,7 +120,7 @@ execExplicit :: (Text, Text) -> Either Error String
 execExplicit = parseNoSpans >=> typeCheck' >=> makeElabExplicit' >=> pretty'
 
 execRun :: (Text, Text) -> Either Error Value
-execRun = parseNoSpans >=> typeCheck' >=> makeElabExplicit' >=> eval'
+execRun = parseNoSpans >=> typeCheck' >=> makeElabExplicit' >=> desugarRec' >=> eval'
 
 execRunUnchecked :: (Text, Text) -> Either Error Value
 execRunUnchecked = parseNoSpans >=> eval'

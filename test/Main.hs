@@ -8,7 +8,6 @@ import Elaine.Eval (evalExpr, newEnv)
 import Elaine.Exec (Command (..), Result (..), exec, execParse, execRun, pack')
 import Elaine.Ident (Ident (..), Location (..))
 import Elaine.Parse (parseExpr)
-import Elaine.Transform (elabToHandle)
 import Examples (testAllExamples)
 import Test.Hspec
   ( Expectation,
@@ -81,7 +80,7 @@ testParseExpr = describe "parseExpr" $ do
     f "handle[h] { if true { true } else { true } }" `shouldBe` Right (Handle (Var (Ident "h" (LocOffset 7))) (If tt tt tt))
 
   it "parses let expressions" $ do
-    f "{ let x = if true { true } else { true }; x }" `shouldBe` Right (Let (Just (Ident "x" (LocOffset 6))) Nothing (If tt tt tt) (Var (Ident "x" (LocOffset 40))))
+    f "{ let x = if true { true } else { true }; x }" `shouldBe` Right (Let (Just (Ident "x" (LocOffset 6), NotRec)) Nothing (If tt tt tt) (Var (Ident "x" (LocOffset 40))))
 
   it "treats braces transparently" $ do
     f "{{{{ if {{ true }} {{ true }} else {{ true }} }}}}" `shouldBe` Right (If tt tt tt)
@@ -98,11 +97,11 @@ testEval = describe "eval0" $ do
     f (If tt ff tt) `shouldBe` Bool False
     f (If ff ff tt) `shouldBe` Bool True
   it "binds simple lets" $ do
-    f (Let (Just x) Nothing (iv 5) $ Var x) `shouldBe` Int 5
-    f (Let (Just x) Nothing (iv 5) $ Var x) `shouldBe` Int 5
+    f (Let (Just (x, NotRec)) Nothing (iv 5) $ Var x) `shouldBe` Int 5
+    f (Let (Just (x, NotRec)) Nothing (iv 5) $ Var x) `shouldBe` Int 5
 
   it "keeps shadowing bindings intact" $ do
-    f (Let (Just x) Nothing (iv 5) $ Let (Just x) Nothing (iv 6) (Var x)) `shouldBe` Int 6
+    f (Let (Just (x, NotRec)) Nothing (iv 5) $ Let (Just (x, NotRec)) Nothing (iv 6) (Var x)) `shouldBe` Int 6
 
   it "applies function arguments" $ do
     f (App (Val $ lam [x] $ Var x) [iv 5]) `shouldBe` Int 5
@@ -119,8 +118,8 @@ testEval = describe "eval0" $ do
     let abort = Ident "abort" LocNone
     -- Returns a boolean to signify whether it ran to completion or aborted
     let h = Val $ Hdl $ Handler (Just (Function [(x, Nothing)] Nothing tt)) [OperationClause abort [] ff]
-    f (Handle h (Let (Just x) Nothing (iv 5) (Var x))) `shouldBe` Bool True
-    f (Handle h (Let (Just x) Nothing (App (Var abort) []) (Var x))) `shouldBe` Bool False
+    f (Handle h (Let (Just (x, NotRec)) Nothing (iv 5) (Var x))) `shouldBe` Bool True
+    f (Handle h (Let (Just (x, NotRec)) Nothing (App (Var abort) []) (Var x))) `shouldBe` Bool False
 
 testRun :: SpecWith ()
 testRun = describe "run" $ do

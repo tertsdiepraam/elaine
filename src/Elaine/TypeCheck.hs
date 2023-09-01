@@ -27,13 +27,13 @@ import qualified Data.MultiSet as MS
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Elaine.AST (ASTValueType)
-import Elaine.AST hiding (Constructor (..), ASTValueType (..), Row)
+import Elaine.AST hiding (ASTValueType (..), Constructor (..), Row)
 import qualified Elaine.AST as AST
 import Elaine.Ident (Ident (Ident, idText), Location (LocBuiltIn, LocNone))
 import Elaine.Pretty (Pretty, pretty)
-import Elaine.Std (stdTypes)
+import Elaine.Std (stdMods, stdTypes)
 import Elaine.TypeVar (TypeVar (ExplicitVar, ImplicitVar))
-import Elaine.Types (Arrow (Arrow), CompType (CompType), Effect (Effect), Row (..), TypeScheme (TypeScheme, effectVars, typ, typeVars), ValType (..), rowEmpty, rowIsEmpty, rowMaybe, rowOpen, rowUpdate, rowVar, rowMerge, DataType (..), Constructor (..))
+import Elaine.Types (Arrow (Arrow), CompType (CompType), Constructor (..), DataType (..), Effect (Effect), Row (..), TypeScheme (TypeScheme, effectVars, typ, typeVars), ValType (..), rowEmpty, rowIsEmpty, rowMaybe, rowMerge, rowOpen, rowUpdate, rowVar)
 import GHC.Generics (Generic)
 import Prelude hiding (pure)
 
@@ -279,7 +279,15 @@ runInfer a = case runState (runExceptT a) stateEmpty of
 
 typeCheck :: [Declaration] -> Either String (TypeEnv, CheckState)
 typeCheck decs = runInfer $ do
-  (env, _) <- typeCheckMod (initialEnv stdTypes) decs
+  -- Get all the built-ins ready
+  let stdEnv = set vars stdTypes empty
+  
+  -- Add the standard library modules that are written in elaine itself
+  (stdEnv', _) <- typeCheckMod stdEnv stdMods
+
+  -- Put that env in the std module:
+  let env = singletonMod (Ident "std" LocBuiltIn) stdEnv' 
+  (env, _) <- typeCheckMod env decs
 
   -- We're forcing main to not have any effects
   -- Most of the type, it will be polymorphic over some effects, but
@@ -291,9 +299,6 @@ typeCheck decs = runInfer $ do
   mainType' <- subM mainType
   mainType'' <- gen env mainType'
   subM (insertVar (Ident "main" LocNone) mainType'' env)
-  where
-    stdTypeEnv types = set vars types empty
-    initialEnv types = singletonMod (Ident "std" LocBuiltIn) (stdTypeEnv types)
 
 getMain :: TypeEnv -> TypeScheme
 getMain = flip (Map.!) (Ident "main" LocNone) . view vars
@@ -322,27 +327,30 @@ typeCheckDec' env = \case
   DecType name params constructors -> do
     -- Create the data type
     let path = view currentPath env ++ [name]
-    constructors' <- mapM
-      ( \(AST.Constructor name params) -> do
-        params' <- mapM (resolveCompType env) params
-        return $ Constructor name params'
-      )
-      constructors
+    constructors' <-
+      mapM
+        ( \(AST.Constructor name params) -> do
+            params' <- mapM (resolveCompType env) params
+            return $ Constructor name params'
+        )
+        constructors
     let dataType = DataType path params constructors'
 
     -- Create the functions for the constructors
-    functions <- mapM
-      ( \(Constructor name' params') -> do
-          ret <- pure $ TypeData dataType (map TypeV params)
-          typ <- pure $ TypeArrow $ Arrow params' ret
-          genType <- gen env typ
-          return (name', genType)
-      )
-          constructors'
-    return $ empty {
-      _types = Map.singleton name dataType,
-      _vars = Map.fromList functions
-    }
+    functions <-
+      mapM
+        ( \(Constructor name' params') -> do
+            ret <- pure $ TypeData dataType (map TypeV params)
+            typ <- pure $ TypeArrow $ Arrow params' ret
+            genType <- gen env typ
+            return (name', genType)
+        )
+        constructors'
+    return $
+      empty
+        { _types = Map.singleton name dataType,
+          _vars = Map.fromList functions
+        }
   DecEffect name signatures -> do
     let fullPath = view currentPath env ++ [name]
     arrows <-
@@ -379,11 +387,18 @@ typeCheckDec' env = \case
               _effects = Map.singleton name eff
             }
     return newEnv
-  DecLet x mt expr -> do
+  DecLet x NotRec mt expr -> do
     tExpr <- infer env expr >>= subM
     () <- forM_ mt (force tExpr <=< resolveCompType env)
     tExpr' <- subM tExpr >>= gen env
     return $ singletonVar x tExpr'
+  DecLet x Rec mt expr -> do
+    t <- case mt of
+      Just t -> resolveCompType env t
+      Nothing -> freshC
+    _ <- inferFunctionLike env [x] [t] (Just t) expr
+    t' <- gen env t
+    return $ singletonVar x t'
 
 resolveValType :: TypeEnv -> ASTValueType -> Infer ValType
 resolveValType env = \case
@@ -391,18 +406,19 @@ resolveValType env = \case
   AST.TypeConstructor (Ident "Bool" _) [] -> return TypeBool
   AST.TypeConstructor (Ident "String" _) [] -> return TypeString
   AST.TypeConstructor (Ident "Int" _) [] -> return TypeInt
-  AST.TypeConstructor x params | isLower (head $ idText x) ->
-    if null params then
-      return $ TypeV (ExplicitVar x)
-    else
-      throwError "type variable cannot have type parameters"
+  AST.TypeConstructor x params
+    | isLower (head $ idText x) ->
+        if null params
+          then return $ TypeV (ExplicitVar x)
+          else throwError "type variable cannot have type parameters"
   AST.TypeConstructor x params -> do
     dt@(DataType _ dtVars _) <- resolveDataType env x
     params' <- mapM (resolveValType env) params
 
-    () <- when (length params' /= length dtVars) $
-      throwError "number of type arguments must match number of type vars of data type"
-  
+    () <-
+      when (length params' /= length dtVars) $
+        throwError "number of type arguments must match number of type vars of data type"
+
     return $ TypeData dt params'
   AST.TypeTuple params -> do
     params' <- mapM (resolveValType env) params
@@ -420,7 +436,6 @@ resolveDataType env t = case Map.lookup t (view types env) of
     recordMetaDefinition t (last p)
     return t'
   Nothing -> throwError $ "Could not find data type " ++ pretty t
-
 
 resolveCompType :: TypeEnv -> ASTComputationType -> Infer CompType
 resolveCompType env (ASTComputationType row valType) = do
@@ -506,8 +521,9 @@ unify a b = do
       () <- unifyV from1 from2
       () <- unifyV to1 to2
       return ()
-    unifyV (TypeData d1 params1) (TypeData d2 params2) | d1 == d2 =
-      mapM_ (uncurry unifyV) (zip params1 params2)
+    unifyV (TypeData d1 params1) (TypeData d2 params2)
+      | d1 == d2 =
+          mapM_ (uncurry unifyV) (zip params1 params2)
     unifyV (TypeTuple params1) (TypeTuple params2) =
       mapM_ (uncurry unifyV) (zip params1 params2)
     unifyV _ _ = throwError "Failed to unify: type error"
@@ -607,12 +623,19 @@ instance Inferable Expr where
         where
           getRow (CompType r _) = r
           emptyEff (CompType _ v) = CompType rowEmpty v
+      Let (Just (x, Rec)) mt e1 e2 -> do
+        t <- case mt of
+          Just t -> resolveCompType env t
+          Nothing -> freshC
+        _ <- inferFunctionLike env [x] [t] (Just t) e1
+        t' <- gen env t
+        infer (insertVar x t' env) e2
       Let x mt e1 e2 -> do
         t1 <- infer env e1
         t1' <- subM t1 >>= gen env
         () <- forM_ mt (force t1 <=< resolveCompType env)
         case x of
-          Just ident -> infer (insertVar ident t1' env) e2
+          Just (ident, _) -> infer (insertVar ident t1' env) e2
           Nothing -> infer env e2
       Handle e1 e2 -> do
         -- Type of the handler
@@ -709,15 +732,15 @@ instance Inferable Expr where
         --  - Check that the expr matches that type
         --  - Check that all the arms have the same type.
         let patternNames = map (getPatternName . getPattern) arms
-        
+
         dataType@(DataType _ dtParams constructors) <- case find (constructorsMatch patternNames) (view types env) of
-              Just dt -> return dt
-              Nothing -> throwError $ "Could not find datatype with constructors: " ++ show patternNames
-        
+          Just dt -> return dt
+          Nothing -> throwError $ "Could not find datatype with constructors: " ++ show patternNames
+
         -- We now know the type but not yet the type parameters of the type
         -- so, we have to add those.
         vars' <- mapM (const freshV) dtParams
-        let typeData = TypeData dataType vars' 
+        let typeData = TypeData dataType vars'
         final@(CompType finalRow _) <- freshC
 
         -- Infer and unify the type from e
@@ -725,22 +748,21 @@ instance Inferable Expr where
         () <- unify te (CompType finalRow typeData)
 
         -- Infer and unify the arms
-        () <- 
-          mapM_ 
-            (
-              \(MatchArm (Pattern name args) body) -> do
+        () <-
+          mapM_
+            ( \(MatchArm (Pattern name args) body) -> do
                 -- Find the corresponding constructor
                 let Constructor _ params = fromJust $ find (\c' -> name == getConstructorName c') constructors
-                
+
                 -- Substitute the type params of the data type in the params of the
-                -- constructor 
-                let params' = map (sub $ Substitutions {subTypeVars=Map.fromList (zip (map TypeV dtParams) vars'), subEffectVars=Map.empty}) params
+                -- constructor
+                let params' = map (sub $ Substitutions {subTypeVars = Map.fromList (zip (map TypeV dtParams) vars'), subEffectVars = Map.empty}) params
                 tBody <- inferFunctionLike env args params' Nothing body
                 let ret = case tBody of
                       CompType _ (TypeArrow (Arrow _ r)) -> r
                       _ -> error "ICE"
                 unify final ret
-            ) 
+            )
             arms
 
         subM final
@@ -750,8 +772,8 @@ instance Inferable Expr where
           getConstructorName (Constructor n _) = n
           constructorsMatch names (DataType _ _ cs) =
             Set.fromList names == Set.fromList (map getConstructorName cs)
-      -- _ -> error "Not implemented"
 
+-- _ -> error "Not implemented"
 
 extractVal :: CompType -> ValType
 extractVal (CompType _ v) = v
@@ -806,8 +828,9 @@ forceValue (TypeHandler name1 from1 to1) (TypeHandler name2 from2 to2) = do
   () <- forceValue from1 from2
   () <- forceValue to1 to2
   return ()
-forceValue (TypeData d1 params1) (TypeData d2 params2) | d1 == d2 =
-  mapM_ (uncurry forceValue) (zip params1 params2)
+forceValue (TypeData d1 params1) (TypeData d2 params2)
+  | d1 == d2 =
+      mapM_ (uncurry forceValue) (zip params1 params2)
 forceValue (TypeTuple params1) (TypeTuple params2) =
   mapM_ (uncurry forceValue) (zip params1 params2)
 forceValue a b = throwError $ "Failed to force: " ++ pretty a ++ " to " ++ pretty b
@@ -848,8 +871,8 @@ instance Inferable Value where
       let fromV = TypeV from
 
       CompType toRow to <- case ret of
-        Just f -> case f of 
-          Function [(x, Nothing)] Nothing body -> 
+        Just f -> case f of
+          Function [(x, Nothing)] Nothing body ->
             infer (insertVar x (TypeScheme [] [] $ CompType rowEmpty fromV) env) body
           _ -> throwError "return case cannot have type annotations"
         Nothing -> do

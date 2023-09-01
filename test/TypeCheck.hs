@@ -11,7 +11,6 @@ import Elaine.Exec (Result, exec, execCheck, isTypeError, pack')
 import Elaine.Ident (Ident (..), Location (LocNone))
 import Elaine.Parse (ParseResult, parseExpr, parseProgram)
 import Elaine.Pretty (pretty)
-import Elaine.Transform (elabToHandle)
 import Elaine.TypeCheck (TypeEnv (TypeEnv), getMain, getVar, runInfer, typeCheck, unifyRows)
 import Elaine.TypeVar (TypeVar (ExplicitVar))
 import Elaine.Types

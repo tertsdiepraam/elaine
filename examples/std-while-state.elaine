@@ -1,0 +1,13 @@
+use std;
+use loop;
+use state;
+
+let c = handle[hState] {
+    while(
+        fn() { lt(get(), 10) },
+        fn() { put(add(1, get())) }
+    );
+    get()
+};
+
+let main = c(0);

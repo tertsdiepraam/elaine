@@ -15,7 +15,7 @@ let hAsk = fn(v: Int) {
     }
 };
 
-let eLocal = elaboration Reader! -> <Ask> {
+let eReader = elaboration Reader! -> <Ask> {
     local!(f, c) {
         handle[hAsk(f(ask()))] c
     }
@@ -23,6 +23,6 @@ let eLocal = elaboration Reader! -> <Ask> {
 
 let double = fn(x) { mul(2, x) };
 
-let main = handle[hAsk(2)] elab[eLocal] {
+let main = handle[hAsk(2)] elab[eReader] {
     local!(double, add(ask(), ask()));
 };

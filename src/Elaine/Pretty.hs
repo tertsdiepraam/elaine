@@ -44,7 +44,8 @@ instance Pretty Declaration where
 instance Pretty DeclarationType where
   pretty (Use s) = "use " ++ pretty s ++ ";"
   pretty (Module x decs) = "mod " ++ pretty x ++ concatBlock decs
-  pretty (DecLet name t expr) = "let " ++ pretty name ++ optionalType t ++ " = " ++ pretty expr ++ ";"
+  pretty (DecLet name r t expr) =
+    "let " ++ pretty r ++ pretty name ++ optionalType t ++ " = " ++ pretty expr ++ ";"
   pretty (DecType name params constructors) =
     "type " ++ pretty name ++ pTypeVars params ++ " " ++ concatBlock constructors
   pretty (DecEffect name operations) =
@@ -57,9 +58,13 @@ instance Pretty OperationSignature where
 instance Pretty Function where
   pretty (Function params ret do') = parens (map pParam params) ++ " " ++ maybe "" pretty ret ++ " " ++ pBlock (pretty do')
 
+instance Pretty Rec where
+  pretty Rec = "rec "
+  pretty NotRec = ""
+
 instance Pretty Expr where
   pretty (Let x t e1 e2) = case x of
-    Just ident -> "let " ++ pretty ident ++ optionalType t ++ " = " ++ pretty e1 ++ ";\n" ++ pretty e2
+    Just (ident, r) -> "let " ++ pretty r ++ pretty ident ++ optionalType t ++ " = " ++ pretty e1 ++ ";\n" ++ pretty e2
     Nothing -> pretty e1 ++ ";\n" ++ pretty e2
   pretty (If c e1 e2) = "if " ++ pretty c ++ " then " ++ pBlock (pretty e1) ++ " else " ++ pBlock (pretty e2)
   pretty (App name params) = pretty name ++ "(" ++ intercalate ", " (map pretty params) ++ ")"

@@ -12,8 +12,12 @@ import Data.Maybe (fromJust, fromMaybe, isJust)
 import Elaine.AST
 import Elaine.Ident (Ident (Ident, idText), Location (LocBuiltIn, LocNone))
 import Elaine.Pretty (pretty)
-import Elaine.Std (stdBindings)
+import Elaine.Std (stdBindings, stdMods)
 import Prelude hiding (exp, lookup)
+import Debug.Trace (traceShowId, traceShow, trace)
+import Text.Pretty.Simple (pShow)
+import Data.Text.Lazy (unpack)
+import Elaine.Transform (desugarRec)
 
 -- The decomposition is a list of functions that plug an expression into
 -- another expression. Composing them gives back the original expression
@@ -54,7 +58,7 @@ reduce = \case
       Fn (Function params _ body) -> subst (zip (map fst params) args) body
       Constant (BuiltIn _ _ body) -> Val $ body (map (fromJust . toVal) args)
       _ -> error ("Tried to call a non-function: " ++ pretty v)
-  Let (Just x) _ (Val v) e -> Just $ subst [(x, Val v)] e
+  Let (Just (x, _)) _ (Val v) e -> Just $ subst [(x, Val v)] e
   Let Nothing _ (Val _) e -> Just e
   Handle (Val v) e ->
     let h = case v of
@@ -190,7 +194,7 @@ step env s =
   fromMaybe ((compose1 . step env . f . decompose1 ctxE) s) (reduceState s)
   where
     f (Just a) = a
-    f Nothing = error ("could not reduce or decompose: " ++ show (fst s) ++ "\n" ++ show (compose s))
+    f Nothing = error ("could not reduce or decompose: " ++ show (fst s) ++ "\n" ++ pretty (compose s))
 
 evalExpr :: Env -> Expr -> Value
 evalExpr _ (Val v) = v
@@ -225,7 +229,7 @@ subst1 (x, new) = \case
   If e1 e2 e3 -> If (f e1) (f e2) (f e3)
   Handle e1 e2 -> Handle (f e1) (f e2)
   Elab e1 e2 -> Elab (f e1) (f e2)
-  Let y t e1 e2 -> if Just x == y then Let y t (f e1) e2 else Let y t (f e1) (f e2)
+  Let y t e1 e2 -> if Just x == fmap fst y then Let y t (f e1) e2 else Let y t (f e1) (f e2)
   -- TODO prevent name shadowing in match arms
   Match e arms -> Match (f e) (map mapArms arms)
     where
@@ -346,7 +350,7 @@ updateEnv _ (DecType typeIdent _ decs) =
       decBindings = fromList $ map f decs
    in newEnv {envBindings = decBindings}
 -- Let adds a single binding
-updateEnv env (DecLet x _ expr) =
+updateEnv env (DecLet x _ _ expr) =
   let bindings = assocs $ envBindings env
       exprBindings = map (second Val) bindings
       substituted = subst exprBindings expr
@@ -371,12 +375,13 @@ mergeEnv a b =
     }
 
 eval :: Program -> Either String Value
-eval decs = case lookup (Ident "main" LocNone) $ envBindings $ privateEnv $ evalModule initialEnv decs of
+eval decs = case lookup (Ident "main" LocNone) $ envBindings $ privateEnv $ evalModule stdEnv decs of
   Just a -> Right a
   Nothing -> Left "No main binding found"
   where
-    stdEnv = newEnv {envBindings = stdBindings}
-    initialEnv = newEnv {envModules = singleton (Ident "std" LocBuiltIn) stdEnv}
+    initEnv = newEnv {envBindings = stdBindings}
+    initEnv' = publicEnv $ evalModule initEnv (desugarRec stdMods)
+    stdEnv = newEnv {envModules = singleton (Ident "std" LocBuiltIn) initEnv'}
 
 evalModule :: Env -> [Declaration] -> EvalResult
 evalModule env = foldl updateResult initialResult
