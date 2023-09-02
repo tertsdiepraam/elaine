@@ -32,11 +32,11 @@ makeElabExplicit m = foldProgram (makeElabExplicit' m)
 
 makeElabExplicit' :: Map Int [Ident] -> Expr -> Expr
 makeElabExplicit' elabIdents = \case
-  ImplicitElab i e -> foldr (\f x -> f x) e (map (Elab . Var) $ elabIdents ! i)
+  ImplicitElab i e -> foldr ((\f x -> f x). Elab . Var) e  (elabIdents ! i)
   e -> e
 
 desugarRec :: Program -> Program
-desugarRec = (foldProgram desugarRecExpr) . (map desugarRecDec)
+desugarRec = foldProgram desugarRecExpr . map desugarRecDec
 
 desugarRecDec :: Declaration -> Declaration
 desugarRecDec (Declaration vis decType) = Declaration vis $ case decType of

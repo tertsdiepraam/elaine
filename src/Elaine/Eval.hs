@@ -14,9 +14,6 @@ import Elaine.Ident (Ident (Ident, idText), Location (LocBuiltIn, LocNone))
 import Elaine.Pretty (pretty)
 import Elaine.Std (stdBindings, stdMods)
 import Prelude hiding (exp, lookup)
-import Debug.Trace (traceShowId, traceShow, trace)
-import Text.Pretty.Simple (pShow)
-import Data.Text.Lazy (unpack)
 import Elaine.Transform (desugarRec)
 
 -- The decomposition is a list of functions that plug an expression into
@@ -126,7 +123,7 @@ ctxCommon (Match e arms) = case e of
 ctxCommon _ = Nothing
 
 isApplicable :: Expr -> Bool
-isApplicable (Var x) = not $ "!" `isSuffixOf` (idText x)
+isApplicable (Var x) = not $ "!" `isSuffixOf` idText x
 isApplicable (Val _) = True
 isApplicable _ = False
 

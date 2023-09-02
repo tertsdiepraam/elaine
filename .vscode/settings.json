@@ -1,0 +1,28 @@
+{
+    "cSpell.words": [
+        "Aeson",
+        "anymore",
+        "assocs",
+        "concat",
+        "cond",
+        "datatype",
+        "decomp",
+        "decs",
+        "desugar",
+        "effs",
+        "Eithers",
+        "elab",
+        "elabs",
+        "elem",
+        "elems",
+        "freshes",
+        "HLINT",
+        "Idents",
+        "Lexer",
+        "parens",
+        "typeclass",
+        "unlines",
+        "vals",
+        "vars"
+    ]
+}

@@ -347,8 +347,8 @@ typeCheckDec' env = \case
     functions <-
       mapM
         ( \(Constructor name' params') -> do
-            ret <- pure $ TypeData dataType (map TypeV params)
-            typ <- pure $ TypeArrow $ Arrow params' ret
+            ret <- pureCompType $ TypeData dataType (map TypeV params)
+            typ <- pureCompType $ TypeArrow $ Arrow params' ret
             genType <- gen env typ
             return (name', genType)
         )
@@ -849,17 +849,17 @@ forceValue a b = throwError $ "Failed to force: " ++ pretty a ++ " to " ++ prett
 inferMany :: Inferable a => TypeEnv -> [a] -> Infer [CompType]
 inferMany env = mapM (infer env)
 
-pure :: ValType -> Infer CompType
-pure v = do
+pureCompType :: ValType -> Infer CompType
+pureCompType v = do
   row <- fresh
   return $ CompType (rowVar row) v
 
 instance Inferable Value where
   infer' env = \case
-    Int _ -> pure TypeInt
-    String _ -> pure TypeString
-    Bool _ -> pure TypeBool
-    Unit -> pure TypeUnit
+    Int _ -> pureCompType TypeInt
+    String _ -> pureCompType TypeString
+    Bool _ -> pureCompType TypeBool
+    Unit -> pureCompType TypeUnit
     Fn (Function args ret body) -> do
       -- Extract the argument names
       let (argNames, argTypes) = unzip args
@@ -877,7 +877,7 @@ instance Inferable Value where
         Nothing -> throwError "could not match handler with an effect"
 
       -- Figure out the type of the return case
-      -- TODO: honor type declarations
+      -- TODO: honour type declarations
       from <- fresh
       let fromV = TypeV from
 
@@ -907,7 +907,7 @@ instance Inferable Value where
           clauses
 
       fromV' <- subM fromV
-      pure $ TypeHandler eff fromV' to
+      pureCompType $ TypeHandler eff fromV' to
       where
         clauseNames = map (\(OperationClause x _ _) -> x) clauses
         matchesClauses (Effect _ signatures) = Set.fromList clauseNames == Set.fromList (Map.keys signatures)
@@ -933,7 +933,7 @@ instance Inferable Value where
               inferFunctionLike env args sigArgs (Just $ CompType row' retVal) body'
           )
           (zip clauses' sigs')
-      pure $ TypeElaboration eff row'
+      pureCompType $ TypeElaboration eff row'
     _ -> error "Not implemented yet"
 
 inferFunctionLike :: TypeEnv -> [Ident] -> [CompType] -> Maybe CompType -> Expr -> Infer CompType
@@ -957,7 +957,7 @@ inferFunctionLike env argNames argTypes tRet body = do
 
   argTypes' <- mapM subM argTypes
   tRet' <- subM tRetInferred
-  pure $ TypeArrow $ Arrow argTypes' tRet'
+  pureCompType $ TypeArrow $ Arrow argTypes' tRet'
 
 findSig :: Ident -> [OperationSignature] -> OperationSignature
 findSig x sig = fromJust $ find (\(OperationSignature y _ _) -> y == x) sig
