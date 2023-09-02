@@ -3,7 +3,7 @@ module Elaine.Pretty where
 import Data.List (intercalate)
 import qualified Data.MultiSet as MS
 import Elaine.AST
-import Elaine.Ident (Ident (Ident))
+import Elaine.Ident (Ident (Ident), Location (..))
 import Elaine.TypeVar (TypeVar (ExplicitVar, ImplicitVar))
 import Elaine.Types (CompType (CompType), Effect (..), Path, DataType (..))
 import qualified Elaine.Types as T
@@ -76,6 +76,7 @@ instance Pretty Expr where
   pretty (Match e arms) = "match " ++ pretty e ++ " " ++ concatBlock arms
   pretty (Var var) = pretty var
   pretty (Val v) = pretty v
+  pretty (Tuple xs) = "(" ++ intercalate ", " (map pretty xs) ++ ")"
 
 instance Pretty Value where
   pretty (Int n) = show n
@@ -91,9 +92,10 @@ instance Pretty Value where
         Nothing -> ""
   pretty (Elb (Elaboration from to clauses)) =
     "elaboration " ++ pretty from ++ " -> " ++ pretty to ++ " " ++ pBlock (unlines (map pretty clauses))
-  pretty (Data type' variant args) = pretty type' ++ "::" ++ pretty variant ++ "(" ++ concatMap pretty args ++ ")"
+  pretty (Data type' variant args) = pretty type' ++ "::" ++ pretty variant ++ "(" ++ intercalate ", " (map pretty args) ++ ")"
   pretty (Constant x) = pretty x
   pretty Unit = "()"
+  pretty (TupleV xs) = "(" ++ intercalate ", " (map pretty xs) ++ ")"
 
 instance Pretty BuiltIn where
   pretty (BuiltIn name _ _) = "<|" ++ pretty name ++ "|>"
@@ -174,10 +176,15 @@ instance Pretty T.ValType where
       ++ if not (null params) then "[" ++ intercalate "," (map pretty params) ++ "]" else ""
 
 instance Pretty DataType where
-  pretty (DataType p _ _) = pretty p
+  pretty (DataType p _) = pretty p
 
 instance Pretty Effect where
   pretty (Effect path _)= pretty path
 
 instance Pretty Path where
   pretty path = intercalate "::" (map pretty path)
+
+instance Pretty Location where
+  pretty (LocOffset i) = "offset " ++ show i
+  pretty LocBuiltIn = "built-in"
+  pretty LocNone = "none"

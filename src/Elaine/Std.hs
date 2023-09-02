@@ -6,7 +6,6 @@ import Elaine.AST
   ( BuiltIn (..),
     Value (Bool, Constant, Int, String),
     Declaration,
-    DeclarationType (Module),
   )
 import Elaine.Parse (parseProgram)
 import Elaine.Ident (Ident (Ident), Location (LocBuiltIn))
@@ -164,13 +163,83 @@ loop = case parseResult of
               }
           };
 
-          pub let rec repeat = fn(x: Int, body: fn() <|e> ()) <|e> () {
-            if eq(x, 0) {
-              ()
-            } else {
-              body();
-              repeat(sub(x, 1), body)
-            }
+          pub let repeat = fn(x: Int, body: fn(Int) <|e> ()) <|e> () {
+              let rec repeat_inner = fn(i: Int) {
+                  if geq(i, x) {
+                    ()
+                  } else {
+                    body(i);
+                    repeat_inner(add(i, 1))
+                  }
+              };
+              repeat_inner(0)
+          };
+      }
+
+      pub mod maybe {
+          pub type Maybe[a] {
+              Just(a),
+              Nothing(),
+          }
+      }
+
+      pub mod list {
+          use maybe;
+
+          pub type List[a] {
+              Cons(a, List[a]),
+              Nil(),
+          }
+
+          pub let head = fn(list: List[a]) Maybe[a] {
+              match list {
+                  Cons(a, rest) => Just(a),
+                  Nil() => Nothing(),
+              } 
+          };
+
+          pub let rec concat_list = fn(a: List[a], b: List[a]) List[a] {
+              match a {
+                  Nil() => b,
+                  Cons(head, rest) => Cons(head, concat_list(rest, b)),
+              }
+          };
+
+          pub let rec range = fn(min: Int, max: Int) List[Int] {
+              if eq(min, max) {
+                  Nil()
+              } else {
+                  Cons(min, range(add(min, 1), max))
+              }
+          };
+
+          pub let rec map = fn(f: fn(a) <|e> b, l: List[a]) <|e> List[b] {
+              match l {
+                  Nil() => Nil(),
+                  Cons(x, xs) => Cons(f(x), map(f, xs)),
+              }
+          };
+
+          pub let rec foldl = fn(f: fn(a, b) <|e> b, init: b, l: List[a]) <|e> b {
+              match l {
+                  Nil() => init,
+                  Cons(x, xs) => foldl(f, f(init, x), xs)
+              }
+          };
+
+          pub let rec foldr = fn(f: fn(a, b) <|e> b, init: b, l: List[a]) <|e> b {
+              match l {
+                  Nil() => init,
+                  Cons(x, xs) => f(x, foldr(f, init, xs)),
+              }
+          };
+
+          pub let sum = fn(l: List[Int]) Int {
+              foldl(add, 0, l)
+          };
+
+          pub let join = fn(l: List[String]) String {
+              foldl(concat, "", l)
           };
       }
 

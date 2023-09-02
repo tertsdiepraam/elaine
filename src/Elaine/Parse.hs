@@ -8,7 +8,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text, pack, unpack)
 import Data.Void
 import Elaine.AST
-import Elaine.Ident (Ident (Ident, idText), Location (LocOffset))
+import Elaine.Ident (Ident (Ident, idText), Location (LocOffset, LocNone))
 import GHC.Generics (Generic)
 import Text.Megaparsec
   ( MonadParsec (eof, notFollowedBy, try),
@@ -326,10 +326,18 @@ expr = do
       <|> elab
       <|> handler
       <|> elaboration
+      <|> listLit
       <|> (Var <$> ident)
       <|> (Tuple <$> parens (expr `sepEndBy` comma))
   applications <- many (parens (expr `sepEndBy` comma))
   return $ foldl App root applications
+
+listLit :: Parser Expr
+listLit = do
+  exprs <- brackets (expr `sepEndBy` comma)
+  return $ foldr
+    (\a b -> App (Var $ Ident "Cons" LocNone) [a, b])
+    (App (Var $ Ident "Nil" LocNone) []) exprs
 
 value :: Parser Value
 value =
@@ -341,8 +349,8 @@ value =
 
 let' :: Parser LetOrExpr
 let' = do
-  (x, rec, t, e) <- letRecLike
-  return $ Let' x rec t e
+  (x, r, t, e) <- letRecLike
+  return $ Let' x r t e
 
 letRecLike :: Parser (Ident, Rec, Maybe ASTComputationType, Expr)
 letRecLike = do 

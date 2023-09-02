@@ -29,7 +29,7 @@ import qualified Data.Set as Set
 import Elaine.AST (ASTValueType)
 import Elaine.AST hiding (ASTValueType (..), Constructor (..), Row)
 import qualified Elaine.AST as AST
-import Elaine.Ident (Ident (Ident, idText), Location (LocBuiltIn, LocNone))
+import Elaine.Ident (Ident (Ident, idText, location), Location (LocBuiltIn, LocNone))
 import Elaine.Pretty (Pretty, pretty)
 import Elaine.Std (stdMods, stdTypes)
 import Elaine.TypeVar (TypeVar (ExplicitVar, ImplicitVar))
@@ -48,6 +48,7 @@ data Substitutions = Substitutions
 data TypeEnv = TypeEnv
   { _currentPath :: [Ident],
     _vars :: Map Ident TypeScheme,
+    _constructors :: Map DataType [Constructor],
     _types :: Map Ident DataType,
     _effects :: Map Ident Effect,
     _mods :: Map Ident TypeEnv,
@@ -119,7 +120,7 @@ get' m a = case Map.lookupIndex a m of
   Nothing -> throwError $ "undefined identifier: " ++ show a
 
 union :: TypeEnv -> TypeEnv -> TypeEnv
-union a = unionLens vars a . unionLens mods a . unionLens effects a . unionLens types a
+union a = unionLens vars a . unionLens mods a . unionLens effects a . unionLens types a . unionLens constructors a
   where
     unionLens :: Ord a => Lens' TypeEnv (Map a b) -> TypeEnv -> TypeEnv -> TypeEnv
     unionLens l a' = over l (Map.union $ a' ^. l)
@@ -160,6 +161,7 @@ empty =
     { _currentPath = [],
       _vars = Map.empty,
       _types = Map.empty,
+      _constructors = Map.empty,
       _effects = Map.empty,
       _mods = Map.empty,
       _bound = Set.empty
@@ -287,18 +289,18 @@ typeCheck decs = runInfer $ do
 
   -- Put that env in the std module:
   let env = singletonMod (Ident "std" LocBuiltIn) stdEnv' 
-  (env, _) <- typeCheckMod env decs
+  (env', _) <- typeCheckMod env decs
 
   -- We're forcing main to not have any effects
   -- Most of the type, it will be polymorphic over some effects, but
   -- we don't have any more handlers, to forcing to empty is ok.
-  mainType <- inst $ view vars env Map.! (Ident "main" LocNone)
+  mainType <- inst $ view vars env' Map.! Ident "main" LocNone
   v <- freshV
   let newMainType = CompType rowEmpty v
   () <- unify mainType newMainType
   mainType' <- subM mainType
   mainType'' <- gen env mainType'
-  subM (insertVar (Ident "main" LocNone) mainType'' env)
+  subM (insertVar (Ident "main" LocNone) mainType'' env')
 
 getMain :: TypeEnv -> TypeScheme
 getMain = flip (Map.!) (Ident "main" LocNone) . view vars
@@ -324,17 +326,22 @@ typeCheckDec' env = \case
     let env' = set currentPath path env
     modEnv <- typeCheckMod env' decs
     return $ singletonMod x (snd modEnv)
-  DecType name params constructors -> do
+  DecType name params cs -> do
     -- Create the data type
     let path = view currentPath env ++ [name]
+    
+    -- To allow recursive types, we insert a dummy type for resolving names
+    -- within this type declaration
+    let dataType = DataType path params
+    let innerEnv = over types (Map.insert name dataType) env
+
     constructors' <-
       mapM
-        ( \(AST.Constructor name params) -> do
-            params' <- mapM (resolveCompType env) params
-            return $ Constructor name params'
+        ( \(AST.Constructor n p) -> do
+            params' <- mapM (resolveCompType innerEnv) p
+            return $ Constructor n params'
         )
-        constructors
-    let dataType = DataType path params constructors'
+        cs
 
     -- Create the functions for the constructors
     functions <-
@@ -349,6 +356,7 @@ typeCheckDec' env = \case
     return $
       empty
         { _types = Map.singleton name dataType,
+          _constructors = Map.singleton dataType constructors',
           _vars = Map.fromList functions
         }
   DecEffect name signatures -> do
@@ -412,7 +420,7 @@ resolveValType env = \case
           then return $ TypeV (ExplicitVar x)
           else throwError "type variable cannot have type parameters"
   AST.TypeConstructor x params -> do
-    dt@(DataType _ dtVars _) <- resolveDataType env x
+    dt@(DataType _ dtVars) <- resolveDataType env x
     params' <- mapM (resolveValType env) params
 
     () <-
@@ -432,10 +440,10 @@ resolveValType env = \case
 
 resolveDataType :: TypeEnv -> Ident -> Infer DataType
 resolveDataType env t = case Map.lookup t (view types env) of
-  Just t'@(DataType p _ _) -> do
+  Just t'@(DataType p _) -> do
     recordMetaDefinition t (last p)
     return t'
-  Nothing -> throwError $ "Could not find data type " ++ pretty t
+  Nothing -> throwError $ "Could not find data type " ++ pretty t ++ " at " ++ pretty (location t)
 
 resolveCompType :: TypeEnv -> ASTComputationType -> Infer CompType
 resolveCompType env (ASTComputationType row valType) = do
@@ -733,9 +741,11 @@ instance Inferable Expr where
         --  - Check that all the arms have the same type.
         let patternNames = map (getPatternName . getPattern) arms
 
-        dataType@(DataType _ dtParams constructors) <- case find (constructorsMatch patternNames) (view types env) of
+        dataType@(DataType _ dtParams) <- case find (constructorsMatch patternNames) (view types env) of
           Just dt -> return dt
           Nothing -> throwError $ "Could not find datatype with constructors: " ++ show patternNames
+
+        let constructors' = view constructors env Map.! dataType
 
         -- We now know the type but not yet the type parameters of the type
         -- so, we have to add those.
@@ -752,7 +762,7 @@ instance Inferable Expr where
           mapM_
             ( \(MatchArm (Pattern name args) body) -> do
                 -- Find the corresponding constructor
-                let Constructor _ params = fromJust $ find (\c' -> name == getConstructorName c') constructors
+                let Constructor _ params = fromJust $ find (\c' -> name == getConstructorName c') constructors'
 
                 -- Substitute the type params of the data type in the params of the
                 -- constructor
@@ -770,8 +780,8 @@ instance Inferable Expr where
           getPattern (MatchArm p _) = p
           getPatternName (Pattern n _) = n
           getConstructorName (Constructor n _) = n
-          constructorsMatch names (DataType _ _ cs) =
-            Set.fromList names == Set.fromList (map getConstructorName cs)
+          constructorsMatch names dataType =
+            Set.fromList names == Set.fromList (map getConstructorName (view constructors env Map.! dataType))
 
 -- _ -> error "Not implemented"
 
@@ -786,6 +796,7 @@ typeOrEmpty env (Just t) = resolveCompType env t
 -- Essentially a one-way unify where we force the first argument to the second
 force :: CompType -> CompType -> Infer ()
 force a b = addStackTrace ("forcing " ++ pretty a ++ " to " ++ pretty b) do
+  when (a == b) $ return ()
   CompType rowA valueA <- subM a
   CompType rowB valueB <- subM b
   () <- forceRow rowA rowB
@@ -833,7 +844,7 @@ forceValue (TypeData d1 params1) (TypeData d2 params2)
       mapM_ (uncurry forceValue) (zip params1 params2)
 forceValue (TypeTuple params1) (TypeTuple params2) =
   mapM_ (uncurry forceValue) (zip params1 params2)
-forceValue a b = throwError $ "Failed to force: " ++ pretty a ++ " to " ++ pretty b
+forceValue a b = throwError $ "Failed to force: " ++ pretty a ++ " to " ++ pretty b ++ "\n" ++ show a ++ "\n" ++ show b
 
 inferMany :: Inferable a => TypeEnv -> [a] -> Infer [CompType]
 inferMany env = mapM (infer env)

@@ -3,7 +3,7 @@ module Elaine.Transform where
 import Data.List (isSuffixOf)
 import Data.Map (Map, (!))
 import Elaine.AST
-import Elaine.Ident (Ident (Ident, idText), Location (LocNone))
+import Elaine.Ident (Ident (idText))
 
 -- import Elaine.Eval (subst)
 -- elabToHandle :: Program -> Program

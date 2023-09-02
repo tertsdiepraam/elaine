@@ -24,7 +24,7 @@ data Effect = Effect Path (Map Ident Arrow)
 
 -- A custom data type, possibly with type vars
 -- These vars are constant and do not change while typechecking
-data DataType = DataType Path [TypeVar] [Constructor]
+data DataType = DataType Path [TypeVar]
   deriving (Show, Eq, Ord)
 
 data Constructor = Constructor Ident [CompType]

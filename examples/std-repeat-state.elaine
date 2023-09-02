@@ -5,7 +5,7 @@ use state;
 let c = handle[hState] {
     repeat(
         7,
-        fn() { put(add(1, get())) }
+        fn(i) { put(add(i, get())) }
     );
     get()
 };
