@@ -2,6 +2,7 @@
 module Elaine.Std (stdBindings, stdTypes, stdMods) where
 
 import Data.Map (Map, fromList)
+import Data.List (isPrefixOf, drop)
 import Elaine.AST
   ( BuiltIn (..),
     Value (Bool, Constant, Int, String),
@@ -61,6 +62,10 @@ allBuiltIns =
     bAnd,
     bOr,
     bConcat,
+    bIsPrefix,
+    bDrop,
+    bTake,
+    bLength,
     bShowInt,
     bShowBool
   ]
@@ -136,6 +141,26 @@ bConcat = newBuiltIn "concat" (arrow [TypeString, TypeString] TypeString) $ \cas
   [String x, String y] -> Just $ String $ x ++ y
   _ -> Nothing
 
+bIsPrefix :: BuiltIn
+bIsPrefix = newBuiltIn "is_prefix" (arrow [TypeString, TypeString] TypeBool) $ \case
+  [String x, String y] -> Just $ Bool $ x `isPrefixOf` y
+  _ -> Nothing
+
+bDrop :: BuiltIn
+bDrop = newBuiltIn "drop" (arrow [TypeInt, TypeString] TypeString) $ \case
+  [Int x, String y] -> Just $ String $ drop x y
+  _ -> Nothing
+
+bTake :: BuiltIn
+bTake = newBuiltIn "take" (arrow [TypeInt, TypeString] TypeString) $ \case
+  [Int x, String y] -> Just $ String $ take x y
+  _ -> Nothing
+
+bLength :: BuiltIn
+bLength = newBuiltIn "length" (arrow [TypeString] TypeInt) $ \case
+  [String x] -> Just $ Int $ length x
+  _ -> Nothing
+
 bShowInt :: BuiltIn
 bShowInt = newBuiltIn "show_int" (arrow [TypeInt] TypeString) $ \case
   [Int x] -> Just $ String $ show x
@@ -154,7 +179,7 @@ loop = case parseResult of
       parseResult = parseProgram ("builtin_loops", m)
       m = [r|
       pub mod loop {
-          pub let rec while = fn(p: fn() <|e> bool, body: fn() <|e> ()) <|e> () {
+          pub let rec while = fn(p: fn() <|e> Bool, body: fn() <|e> ()) <|e> () {
               if p() {
                 body();
                 while(p, body)
@@ -183,6 +208,19 @@ loop = case parseResult of
           }
       }
 
+      pub mod abort {
+          use maybe;
+
+          pub effect Abort {
+              abort() a
+          }
+
+          pub let hAbort = handler {
+              return(x) { Just(x) }
+              abort() { Nothing() }
+          };
+      }
+
       pub mod list {
           use maybe;
 
@@ -195,7 +233,7 @@ loop = case parseResult of
               match list {
                   Cons(a, rest) => Just(a),
                   Nil() => Nothing(),
-              } 
+              }
           };
 
           pub let rec concat_list = fn(a: List[a], b: List[a]) List[a] {
@@ -223,7 +261,7 @@ loop = case parseResult of
           pub let rec foldl = fn(f: fn(a, b) <|e> b, init: b, l: List[a]) <|e> b {
               match l {
                   Nil() => init,
-                  Cons(x, xs) => foldl(f, f(init, x), xs)
+                  Cons(x, xs) => foldl(f, f(x, init), xs)
               }
           };
 
@@ -239,7 +277,15 @@ loop = case parseResult of
           };
 
           pub let join = fn(l: List[String]) String {
-              foldl(concat, "", l)
+              foldr(concat, "", l)
+          };
+
+          pub let rec explode = fn(s: String) List[String] {
+              if gt(length(s), 0) {
+                  Cons(take(1, s), explode(drop(1, s)))
+              } else {
+                  Nil()
+              }
           };
       }
 
@@ -263,6 +309,33 @@ loop = case parseResult of
               }
               put(n) {
                   fn(s: Int) {
+                      let f = resume(());
+                      f(n)
+                  }
+              }
+          };
+      }
+
+      pub mod state_str {
+          pub effect State {
+              get() String
+              put(String) () 
+          }
+
+          pub let hState = handler {
+              return(x) {
+                  fn(s: String) {
+                      x
+                  }
+              }
+              get() {
+                  fn(s: String) {
+                      let f = resume(s);
+                      f(s)
+                  }
+              }
+              put(n) {
+                  fn(s: String) {
                       let f = resume(());
                       f(n)
                   }

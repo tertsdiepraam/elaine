@@ -35,7 +35,7 @@ let assert = fn(a, b, c) {
 };
 
 effect Once! {
-    once!(a) a
+    once!(a) ()
 }
 
 let eOnce = elaboration Once! -> <Yield,Logic> {

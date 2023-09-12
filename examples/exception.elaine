@@ -1,35 +1,36 @@
 use std;
 
-type Maybe[a] {
-    Just(a),
-    Nothing(),
+type Result[a, b] {
+    Ok(a),
+    Err(b),
 }
 
 effect Throw {
-    throw() a
+    throw(String) a
 }
 
-effect Exc! {
+effect Exception! {
+    throw(String) a
     catch!(a, a) a
 }
 
 let hThrow = handler {
-    return(x) { Just(x) }
-    throw() { Nothing() }
+    return(x) { if false { Err("") } else { Ok(x) } }
+    throw(err) { Err(err) }
 };
 
-let eExc = elaboration Exc! -> <Throw> {
+let eExc = elaboration Exception! -> <Throw> {
     catch!(x, y) {
         match handle[hThrow] x {
-            Just(a) => a,
-            Nothing() => y
+            Ok(a) => a,
+            Err(s) => y
         }
     }
 };
 
 let safe_div = fn(x, y) <Throw> Int {
     if eq(y, 0) {
-        throw()
+        throw("tried to divide by zero!")
     } else {
         div(x, y)
     }

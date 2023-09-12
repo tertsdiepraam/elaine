@@ -1,11 +1,11 @@
 use std;
 
-let rec while = fn(p: fn() <|e> bool, body: fn() <|e> a) <|e> () {
+let rec while = fn(p: fn() <|e> bool, body: fn() <|e> ()) <|e> () {
     if p() {
-       () 
-    } else {
        body();
        while(p, body)
+    } else {
+       () 
     }
 };
 

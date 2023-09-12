@@ -34,8 +34,12 @@ expected "state.elaine" v = v == Int 6
 expected "structured_logging.elaine" v = v == String "main: msg1\nmain:foo: msg2\nmain:bar: msg3\n"
 expected "ask.elaine" v = v == Int 32
 expected "yield.elaine" v = v == String "2\n4\n"
-expected "exception.elaine" v = pretty v == "Maybe::Just(13)"
+expected "exception.elaine" v = pretty v == "Result::Ok(13)"
 expected "std-while.elaine" v = v == Int 10
+expected "std-while-state.elaine" v = v == Int 10
+expected "std-repeat-state.elaine" v = v == Int 21
+expected "list.elaine" v = v == Int 15
+expected "parser_combinator.elaine" v = pretty v == "Maybe::Just(Json::JsonObject(List::Cons((\"key1\", Json::JsonInt(\"123\")), List::Cons((\"key2\", Json::JsonArray(List::Cons(Json::JsonInt(\"1\"), List::Cons(Json::JsonInt(\"2\"), List::Cons(Json::JsonInt(\"3\"), List::Nil()))))), List::Cons((\"key3\", Json::JsonString(\"some string\")), List::Nil())))))"
 expected _ _ = error "Example does not have an expected value"
 
 testAllExamples :: SpecWith ()

@@ -36,6 +36,9 @@ import Elaine.TypeVar (TypeVar (ExplicitVar, ImplicitVar))
 import Elaine.Types (Arrow (Arrow), CompType (CompType), Constructor (..), DataType (..), Effect (Effect), Row (..), TypeScheme (TypeScheme, effectVars, typ, typeVars), ValType (..), rowEmpty, rowIsEmpty, rowMaybe, rowMerge, rowOpen, rowUpdate, rowVar)
 import GHC.Generics (Generic)
 import Prelude hiding (pure)
+import Text.Pretty.Simple (pShow)
+import Debug.Trace (trace)
+import Data.Text.Lazy (unpack)
 
 -- TypeVar to Type
 data Substitutions = Substitutions
@@ -212,6 +215,7 @@ freeTypeVars env t = allTypeVars t Set.\\ view bound env
     allTypeVarsV (TypeV v) = Set.singleton v
     allTypeVarsV (TypeArrow (Arrow args ret)) = Set.unions (map allTypeVars (args ++ [ret]))
     allTypeVarsV (TypeData _ params) = Set.unions (map allTypeVarsV params)
+    allTypeVarsV (TypeTuple params) = Set.unions (map allTypeVarsV params)
     allTypeVarsV (TypeHandler _ from to) = Set.union (allTypeVarsV from) (allTypeVarsV to)
     allTypeVarsV _ = Set.empty
 
@@ -285,21 +289,22 @@ typeCheck decs = runInfer $ do
   let stdEnv = set vars stdTypes empty
   
   -- Add the standard library modules that are written in elaine itself
-  (stdEnv', _) <- typeCheckMod stdEnv stdMods
+  (stdEnv, _) <- typeCheckMod stdEnv stdMods
 
   -- Put that env in the std module:
-  let env = singletonMod (Ident "std" LocBuiltIn) stdEnv' 
+  let env = singletonMod (Ident "std" LocBuiltIn) stdEnv 
   (env', _) <- typeCheckMod env decs
 
   -- We're forcing main to not have any effects
-  -- Most of the type, it will be polymorphic over some effects, but
+  -- Most of the time, it will be polymorphic over some effects, but
   -- we don't have any more handlers, to forcing to empty is ok.
   mainType <- inst $ view vars env' Map.! Ident "main" LocNone
   v <- freshV
   let newMainType = CompType rowEmpty v
-  () <- unify mainType newMainType
+  () <- unify env' mainType newMainType
   mainType' <- subM mainType
-  mainType'' <- gen env mainType'
+  mainType'' <- gen env' mainType'
+  -- let !_ = trace (unpack $ pShow $ view vars env') () 
   subM (insertVar (Ident "main" LocNone) mainType'' env')
 
 getMain :: TypeEnv -> TypeScheme
@@ -375,18 +380,17 @@ typeCheckDec' env = \case
     sigsAsFunctions <-
       mapM
         ( \(f, Arrow args ret) -> do
-            let a = ExplicitVar (Ident "a" LocNone)
-            let b = ExplicitVar (Ident "b" LocNone)
+            a <- fresh
+            b <- fresh
             ret' <- case ret of
               CompType row retVal | rowIsEmpty row -> return $ CompType (rowOpen [eff] b) retVal
               _ -> throwError "effect operation cannot have any effects"
-            return
-              ( f,
-                TypeScheme [] [a, b] $
+            generalized <-
+                gen env $
                   CompType (rowVar a) $
                     TypeArrow $
                       Arrow args ret'
-              )
+            return (f, generalized)
         )
         arrows
     let newEnv =
@@ -494,8 +498,8 @@ instance Substitutable Row where
       Nothing -> row
     Nothing -> row
 
-unify :: CompType -> CompType -> Infer ()
-unify a b = do
+unify :: TypeEnv -> CompType -> CompType -> Infer ()
+unify env a b = do
   a' <- subM a
   b' <- subM b
   addStackTrace
@@ -514,16 +518,18 @@ unify a b = do
     unifyV a' b' | a' == b' = return ()
     -- We give explicit vars priority to make it more likely that those
     -- show up in error messages instead of implicit vars.
-    unifyV v@(TypeV (ExplicitVar _)) t = addTypeSub v t
-    unifyV t v@(TypeV (ExplicitVar _)) = addTypeSub v t
-    unifyV v@(TypeV _) t = addTypeSub v t
-    unifyV t v@(TypeV _) = addTypeSub v t
+    -- We also check that we don't substitute away bound type variables
+    unifyV t1@(TypeV (ImplicitVar _)) t2@(TypeV (ExplicitVar _)) = addTypeSub t1 t2
+    unifyV t1@(TypeV (ExplicitVar _)) t2@(TypeV (ImplicitVar _)) = addTypeSub t2 t1
+
+    unifyV t1@(TypeV (ImplicitVar _)) t2 = addTypeSub t1 t2
+    unifyV t1 t2@(TypeV (ImplicitVar _)) = addTypeSub t2 t1
     unifyV (TypeArrow (Arrow args1 ret1)) (TypeArrow (Arrow args2 ret2)) = do
       () <-
         when (length args1 /= length args2) $
           throwError "function does not have the right number of arguments"
-      () <- mapM_ (uncurry unify) (zip args1 args2)
-      unify ret1 ret2
+      () <- mapM_ (uncurry $ unify env) (zip args1 args2)
+      unify env ret1 ret2
     unifyV (TypeHandler name1 from1 to1) (TypeHandler name2 from2 to2) = do
       () <- when (name1 /= name2) $ throwError "failed to unify handlers for different effects"
       () <- unifyV from1 from2
@@ -603,9 +609,9 @@ instance Inferable Expr where
         t3 <- infer env e3
         row <- freshR
         vt <- freshV
-        () <- unify t1 (CompType row TypeBool)
-        () <- unify t2 (CompType row vt)
-        () <- unify t3 (CompType row vt)
+        () <- unify env t1 (CompType row TypeBool)
+        () <- unify env t2 (CompType row vt)
+        () <- unify env t3 (CompType row vt)
         subM (CompType row vt)
       App f args -> do
         -- First we find the function type, the argument types and the return type
@@ -626,7 +632,7 @@ instance Inferable Expr where
             return $ CompType fRow (TypeArrow (Arrow fArgs fRet'))
           tf' -> return tf'
 
-        () <- unify tf' (CompType row' (TypeArrow $ Arrow (map emptyEff tArgs) tRet))
+        () <- unify env tf' (CompType row' (TypeArrow $ Arrow (map emptyEff tArgs) tRet))
         openRow <=< subM $ tRet
         where
           getRow (CompType r _) = r
@@ -656,7 +662,7 @@ instance Inferable Expr where
 
         -- Unify restRow with t1
         vt <- freshV
-        () <- unify (CompType restRow vt) t1
+        () <- unify env (CompType restRow vt) t1
 
         -- Get the parameters from the handler type
         vt' <- subM vt
@@ -668,7 +674,7 @@ instance Inferable Expr where
         -- from and t2. The effect row in the computation is the name of the effect
         -- handled and the restRow.
         t2 <- infer env e2
-        () <- unify (CompType (rowOpen [name] rVar) from) t2
+        () <- unify env (CompType (rowOpen [name] rVar) from) t2
 
         subM $ CompType restRow to
       Elab e1 e2 -> do
@@ -676,7 +682,7 @@ instance Inferable Expr where
         rVar <- fresh
         let restRow = rowVar rVar
         vt <- freshV
-        () <- unify (CompType restRow vt) t1
+        () <- unify env (CompType restRow vt) t1
 
         vt' <- subM vt
         (name, row) <- case vt' of
@@ -755,7 +761,7 @@ instance Inferable Expr where
 
         -- Infer and unify the type from e
         te <- infer env e
-        () <- unify te (CompType finalRow typeData)
+        () <- unify env te (CompType finalRow typeData)
 
         -- Infer and unify the arms
         () <-
@@ -771,7 +777,7 @@ instance Inferable Expr where
                 let ret = case tBody of
                       CompType _ (TypeArrow (Arrow _ r)) -> r
                       _ -> error "ICE"
-                unify final ret
+                unify env final ret
             )
             arms
 

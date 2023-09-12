@@ -1,0 +1,149 @@
+use std;
+use maybe;
+use list;
+use state_str;
+use abort;
+
+effect Parse! {
+    # Signal that this branch has failed to parse
+    fail!() a
+    # Try to apply the parser, reset the state if it fails
+    try!(a) Maybe[a]
+    # Eat the string from the start, which may fail if the string is not the prefix of the input
+    eat!(String) String
+}
+
+let eParse = elaboration Parse! -> <State,Abort> {
+    fail!() { abort() }
+    try!(x) { 
+        let old_state = get();
+        match handle[hAbort] x {
+            Just(res) => Just(res),
+            Nothing() => {
+                put(old_state);
+                Nothing()
+            }
+        }
+    }
+    eat!(s) {
+        let state = get();
+        if is_prefix(s, state) {
+            let new_state = drop(length(s), state);
+            put(new_state);
+            s
+        } else {
+            abort()
+        }
+    }
+};
+
+### Combinators
+let alt2 = fn(a, b) {
+    match try!(a()) {
+        Just(x) => x,
+        Nothing() => b(),
+    }
+};
+
+let rec alt = fn(parsers) {
+    match parsers {
+        Cons(p, ps) => alt2(p, fn() { alt(ps) }),
+        Nil() => fail!(),
+    }
+};
+
+let rec many = fn(p) {
+    match try!(p()) {
+        Just(x) => Cons(x, many(p)),
+        Nothing() => Nil(),
+    }
+};
+
+let separated = fn(p: fn() <Parse!> a, separator: fn() <Parse!> b) <Parse!> List[a] {
+    match try!(p()) {
+        Just(x) => Cons(x, many(fn() {separator(); p()})),
+        Nothing() => Nil()
+    }
+};
+
+### Parsers
+# Parse a token specified as a string
+let token = fn(s) { eat!(s) };
+
+let one_of = fn(s) {
+    fn() {
+        alt(map( fn(x) { fn() { token(x) } }, explode(s)))
+    }
+};
+
+# Parse a single digit
+let digit = one_of("0123456789");
+let str_char = one_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_- ?!");
+let white_one = one_of(" \n\t");
+let white = fn() { many(white_one); () };
+
+let tokenws = fn(s) {
+    let t = token(s);
+    white();
+    t
+};
+
+let comma_separated = fn(p: fn() <Parse!> a) <Parse!> List[a] {
+    separated(p, fn() { tokenws(",") })
+};
+
+# Parse as many digits as possible
+let number = fn() { join(many(digit)) };
+
+type Json {
+    JsonString(String),
+    JsonInt(String),
+    JsonArray(List[Json]),
+    JsonObject(List[(String, Json)]),
+}
+
+let string = fn() <Parse!> String {
+    token("\"");
+    let s = join(many(str_char));
+    tokenws("\"");
+    s
+};
+
+let key_value = fn(value: fn() <Parse!> Json) <Parse!> (String, Json) {
+    let k = string();
+    tokenws(":");
+    (k, value())
+};
+
+let object = fn(value: fn() <Parse!> Json) <Parse!> Json {
+    tokenws("{");
+    let kvs = comma_separated(fn() { key_value(value) });
+    tokenws("}");
+    JsonObject(kvs)
+};
+
+let array = fn(value) {
+    tokenws("[");
+    let values = comma_separated(value);
+    tokenws("]");
+    JsonArray(values)
+};
+
+let rec value = fn() {
+    alt([
+        fn() { array(value) },
+        fn() { object(value) },
+        fn() { JsonString(string()) },
+        fn() { JsonInt(number()) },
+    ])
+};
+
+let parse = fn(parser, input) {
+    let f = handle[hState] handle[hAbort] elab[eParse] parser();
+    f(input)
+};
+
+let main = parse(
+    value,
+    "{\"key1\": 123, \"key2\": [1,2,3], \"key3\": \"some string\"}"
+);
