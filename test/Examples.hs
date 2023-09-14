@@ -39,6 +39,7 @@ expected "std-while.elaine" v = v == Int 10
 expected "std-while-state.elaine" v = v == Int 10
 expected "std-repeat-state.elaine" v = v == Int 21
 expected "list.elaine" v = v == Int 15
+expected "ask2.elaine" v = v == Int 3
 expected "parser_combinator.elaine" v = pretty v == "Maybe::Just(Json::JsonObject(List::Cons((\"key1\", Json::JsonInt(\"123\")), List::Cons((\"key2\", Json::JsonArray(List::Cons(Json::JsonInt(\"1\"), List::Cons(Json::JsonInt(\"2\"), List::Cons(Json::JsonInt(\"3\"), List::Nil()))))), List::Cons((\"key3\", Json::JsonString(\"some string\")), List::Nil())))))"
 expected _ _ = error "Example does not have an expected value"
 
