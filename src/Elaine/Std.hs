@@ -63,6 +63,7 @@ allBuiltIns =
     bOr,
     bConcat,
     bIsPrefix,
+    bStrEq,
     bDrop,
     bTake,
     bLength,
@@ -144,6 +145,11 @@ bConcat = newBuiltIn "concat" (arrow [TypeString, TypeString] TypeString) $ \cas
 bIsPrefix :: BuiltIn
 bIsPrefix = newBuiltIn "is_prefix" (arrow [TypeString, TypeString] TypeBool) $ \case
   [String x, String y] -> Just $ Bool $ x `isPrefixOf` y
+  _ -> Nothing
+
+bStrEq :: BuiltIn
+bStrEq = newBuiltIn "str_eq" (arrow [TypeString, TypeString] TypeBool) $ \case
+  [String x, String y] -> Just $ Bool $ x == y
   _ -> Nothing
 
 bDrop :: BuiltIn

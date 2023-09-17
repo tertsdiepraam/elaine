@@ -10,7 +10,7 @@ effect Parse! {
     # Try to apply the parser, reset the state if it fails
     try!(a) Maybe[a]
     # Eat the string from the start, which may fail if the string is not the prefix of the input
-    eat!(String) String
+    eat!() String
 }
 
 let eParse = elaboration Parse! -> <State,Abort> {
@@ -25,15 +25,10 @@ let eParse = elaboration Parse! -> <State,Abort> {
             }
         }
     }
-    eat!(s) {
+    eat!() {
         let state = get();
-        if is_prefix(s, state) {
-            let new_state = drop(length(s), state);
-            put(new_state);
-            s
-        } else {
-            abort()
-        }
+        put(drop(1, state));
+        take(1, state)
     }
 };
 
@@ -68,17 +63,48 @@ let separated = fn(p: fn() <Parse!> a, separator: fn() <Parse!> b) <Parse!> List
 
 ### Parsers
 # Parse a token specified as a string
-let token = fn(s) { eat!(s) };
+let token = fn(s) {
+    let c = eat!();
+    if str_eq(s, c) {
+        c
+    } else {
+        fail!()
+    }
+};
+
+let rec contains_str = fn(s, l) {
+    match l {
+        Cons(x, xs) => {
+            if str_eq(x, s) {
+                true
+            } else {
+                contains_str(s, xs)
+            }
+        },
+        Nil() => false,
+    }
+};
 
 let one_of = fn(s) {
+    let list_of_chars = explode(s);
     fn() {
-        alt(map( fn(x) { fn() { token(x) } }, explode(s)))
+        let c = eat!();
+        if contains_str(c, list_of_chars) {
+            c
+        } else {
+            fail!()            
+        }
     }
 };
 
 # Parse a single digit
 let digit = one_of("0123456789");
-let str_char = one_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_- ?!");
+let str_char = one_of(join([
+    "0123456789",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "abcdefghijklmnopqrstuvwxyz",
+    "_- ?!",
+]));
 let white_one = one_of(" \n\t");
 let white = fn() { many(white_one); () };
 

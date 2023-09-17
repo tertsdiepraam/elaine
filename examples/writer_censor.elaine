@@ -1,0 +1,43 @@
+use std;
+
+effect Writer! {
+    censor!(fn(String) String, a) a
+    tell!(String) ()
+}
+
+effect Out {
+    tell(String) ()
+}
+
+type Output[a] {
+    Output(String, a)
+}
+
+let hOut = handler {
+    return(x) { Output("", x) }
+    tell(s) {
+        match resume(()) {
+            Output(s', x) => Output(concat(s, s'), x)
+        }
+    }
+};
+
+let eWriter = elaboration Writer! -> <Out> {
+    tell!(s) { tell(s) }
+    censor!(f, c) {
+        match handle[hOut] c {
+            Output(s, x) => {
+                tell(f(s));
+                x
+            }
+        }
+    }
+};
+
+let main = handle[hOut] elab {
+    tell("foo");
+    censor!(fn(s) { "bar" }, {
+        tell("baz");
+        5
+    });
+};

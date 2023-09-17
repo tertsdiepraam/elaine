@@ -25,6 +25,7 @@ expected "id.elaine" v = v == Int 5
 expected "implicit.elaine" v = v == String "The answer is: 23"
 expected "local_reader.elaine" v = v == Int 8
 expected "local_reader_implicit.elaine" v = v == Int 8
+expected "writer_censor.elaine" v = pretty v == "Output::Output(\"foobar\", 5)"
 expected "logic_once.elaine" v = v == String "False, True, True\n"
 expected "logic.elaine" v = v == String "False, True, True\nFalse, True, False\n"
 expected "match.elaine" v = v == String "5"
