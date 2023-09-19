@@ -9,7 +9,7 @@ effect Parse! {
     fail!() a
     # Try to apply the parser, reset the state if it fails
     try!(a) Maybe[a]
-    # Eat the string from the start, which may fail if the string is not the prefix of the input
+    # Remove and return the first character of the input
     eat!() String
 }
 
@@ -54,7 +54,10 @@ let rec many = fn(p) {
     }
 };
 
-let separated = fn(p: fn() <Parse!> a, separator: fn() <Parse!> b) <Parse!> List[a] {
+let separated = fn(
+    p: fn() <Parse!> a,
+    separator: fn() <Parse!> b,
+) <Parse!> List[a] {
     match try!(p()) {
         Just(x) => Cons(x, many(fn() {separator(); p()})),
         Nothing() => Nil()
